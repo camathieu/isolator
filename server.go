@@ -1,9 +1,3 @@
-// Copyright 2015 The Gorilla WebSocket Authors. All rights reserved.
-// Use of this source code is governed by a BSD-style
-// license that can be found in the LICENSE file.
-
-// +build ignore
-
 package main
 
 import (
@@ -11,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"io/ioutil"
+	"time"
 )
 
 var addr = flag.String("addr", "localhost:8081", "http service address")
@@ -43,6 +38,11 @@ func fail(w http.ResponseWriter, r *http.Request) {
 	http.Error(w,"GO FUNK YOURSELF",666)
 }
 
+func sleep(w http.ResponseWriter, r *http.Request) {
+	time.Sleep(10 * time.Second)
+	w.Write([]byte("ok"))
+}
+
 func main() {
 	flag.Parse()
 	log.SetFlags(0)
@@ -50,5 +50,6 @@ func main() {
 	http.HandleFunc("/header", header)
 	http.HandleFunc("/fail", fail)
 	http.HandleFunc("/post", post)
+	http.HandleFunc("/sleep", sleep)
 	log.Fatal(http.ListenAndServe(*addr, nil))
 }
