@@ -36,7 +36,7 @@ func NewProxyConnection(pool *ConnectionPool) (conn *ProxyConnection) {
 func (conn *ProxyConnection) Connect() (err error){
 	log.Printf("Connecting to %s", conn.pool.target)
 
-	conn.ws, _, err = websocket.DefaultDialer.Dial(conn.pool.target, nil)
+	conn.ws, _, err = conn.pool.proxy.dialer.Dial(conn.pool.target, nil)
 	if err != nil {
 		return err
 	}
@@ -159,7 +159,6 @@ func (conn *ProxyConnection) Serve() {
 		err = conn.ws.WriteMessage(websocket.TextMessage,jsonResponse)
 		if err != nil {
 			log.Printf("Unable to write response : %v", err)
-			return
 			break
 		}
 

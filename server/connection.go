@@ -1,4 +1,4 @@
-package isolator
+package server
 
 import (
 	"net/http"
@@ -19,8 +19,9 @@ const (
 	CLOSED
 )
 
+// ProxyConnection manage a single websocket connection from
 type ProxyConnection struct {
-	pp *ProxyPool
+	cp *ConnectionPool
 	ws *websocket.Conn
 
 	status int
@@ -29,9 +30,10 @@ type ProxyConnection struct {
 	nextResponse      chan(chan(io.Reader))
 }
 
-func NewProxyConnection(pp *ProxyPool, ws *websocket.Conn) (pc *ProxyConnection){
+// NewProxyConnection return a new ProxyConnection
+func NewProxyConnection(pp *ConnectionPool, ws *websocket.Conn) (pc *ProxyConnection){
 	pc = new(ProxyConnection)
-	pc.pp = pp
+	pc.cp = pp
 	pc.ws = ws
 	pc.nextResponse = make(chan(chan(io.Reader)))
 
@@ -64,8 +66,7 @@ func (pc *ProxyConnection) read(){
 		// We will block here until a message is received or the ws is closed
 		_, reader, err := pc.ws.NextReader()
 		if err != nil {
-			pc.Close()
-			return
+			break
 		}
 
 		if pc.status != PROXY {
@@ -91,15 +92,16 @@ func (pc *ProxyConnection) read(){
 	}
 }
 
+// Proxy a HTTP request through the IzolatorProxy over the websocket connection
 func (pc *ProxyConnection) proxyRequest(w http.ResponseWriter, r *http.Request) (err error){
 	if pc.status != IDLE {
 		return fmt.Errorf("Proxy connection is not READY")
 	}
 	pc.status = PROXY
 
-	log.Printf("proxy request to %s", pc.pp.name)
+	log.Printf("proxy request to %s", pc.cp.name)
 
-	// Serialize request
+	// Serialize HTTP request
 	jsonReq, err := json.Marshal(common.SerializeHttpRequest(r))
 	if err != nil {
 		return fmt.Errorf("Unable to serialize request : %s",err)
@@ -107,7 +109,7 @@ func (pc *ProxyConnection) proxyRequest(w http.ResponseWriter, r *http.Request) 
 
 	log.Printf("write request")
 
-	// Send serialized request to the proxy
+	// Send the serialized HTTP request to the remote IzolatorProxy
 	err = pc.ws.WriteMessage(websocket.TextMessage,jsonReq)
 	if err != nil {
 		return fmt.Errorf("Unable to write request : %s",err)
@@ -115,7 +117,7 @@ func (pc *ProxyConnection) proxyRequest(w http.ResponseWriter, r *http.Request) 
 
 	log.Printf("write request body")
 
-	// Send the request body to the proxy
+	// Pipe the HTTP request body to the remote IzolatorProxy
 	bodyWriter, err := pc.ws.NextWriter(websocket.BinaryMessage)
 	if err != nil {
 		return fmt.Errorf("Unable to get request body writer : %s",err)
@@ -124,7 +126,6 @@ func (pc *ProxyConnection) proxyRequest(w http.ResponseWriter, r *http.Request) 
 	if err != nil {
 		return fmt.Errorf("Unable to pipe request body : %s",err)
 	}
-
 	err = bodyWriter.Close()
 	if err != nil {
 		return fmt.Errorf("Unable to pipe request body (close) : %s",err)
@@ -132,8 +133,9 @@ func (pc *ProxyConnection) proxyRequest(w http.ResponseWriter, r *http.Request) 
 
 	log.Printf("read response")
 
-	// Send a new channel to read() to get the next message reader
-	// which is expected to be the serialized response
+	// Get the serialized HTTP Response from the remote IzolatorProxy
+	// To do so send a new channel to the read() goroutine
+	// to get the next message reader
 	responseChannel := make(chan(io.Reader))
 	pc.nextResponse <- responseChannel
 	responseReader, more := <- responseChannel
@@ -145,16 +147,17 @@ func (pc *ProxyConnection) proxyRequest(w http.ResponseWriter, r *http.Request) 
 		return fmt.Errorf("Unable to get http response reader : %s",err)
 	}
 
+	// Read the HTTP Response
 	jsonResponse, err := ioutil.ReadAll(responseReader)
 	if err != nil {
 		close(responseChannel)
 		return fmt.Errorf("Unable to read http response : %s",err)
 	}
 
-	// Notify read() that we are done reading the serialized response
+	// Notify the read() goroutine that we are done reading the response
 	close(responseChannel)
 
-	// Unserialize response
+	// Unserialize the HTTP Response
 	httpResponse := new(common.HttpResponse)
 	err = json.Unmarshal(jsonResponse, httpResponse)
 	if err != nil {
@@ -163,7 +166,7 @@ func (pc *ProxyConnection) proxyRequest(w http.ResponseWriter, r *http.Request) 
 
 	log.Printf("write response")
 
-	// Write response headers to the client
+	// Write response headers back to the client
 	for header, values := range httpResponse.Header {
 		for _, value := range values {
 			w.Header().Add(header, value)
@@ -173,8 +176,9 @@ func (pc *ProxyConnection) proxyRequest(w http.ResponseWriter, r *http.Request) 
 
 	log.Printf("read response body")
 
-	// Send a new channel to read() to get the next message reader
-	// which is expected to be the response body ( binary )
+	// Get the HTTP Response body from the remote IzolatorProxy
+	// To do so send a new channel to the read() goroutine
+	// to get the next message reader
 	responseBodyChannel := make(chan(io.Reader))
 	pc.nextResponse <- responseBodyChannel
 	responseBodyReader, more := <- responseBodyChannel
@@ -188,7 +192,7 @@ func (pc *ProxyConnection) proxyRequest(w http.ResponseWriter, r *http.Request) 
 
 	log.Printf("write response body")
 
-	// Pipe the response body from the proxy to the client
+	// Pipe the HTTP response body right from the remote IzolatorProxy to the client
 	_, err = io.Copy(w,responseBodyReader)
 	if err != nil {
 		close(responseBodyChannel)
@@ -204,6 +208,7 @@ func (pc *ProxyConnection) proxyRequest(w http.ResponseWriter, r *http.Request) 
 	return
 }
 
+// Close the remote IzolatorProxy connection
 func (pc *ProxyConnection) Close(){
 	pc.lock.Lock()
 	defer pc.lock.Unlock()
@@ -212,10 +217,16 @@ func (pc *ProxyConnection) Close(){
 		return
 	}
 
-	log.Printf("Closing connection from %s", pc.pp.name)
-	pc.ws.Close()
+	log.Printf("Closing connection from %s", pc.cp.name)
 
-	// Unlock a possible read
+	// This one will be executed *before* lock.Unlock()
+	defer func(){pc.status = CLOSED}()
+
+	// Unlock a possible read() wild message
 	close(pc.nextResponse)
-	pc.status = CLOSED
+
+	pc.ws.Close()
+	// pc.ws.Close() would close the underlying TCP connection
+	// So instead just try to send a close message to that websocket
+	//pc.ws.WriteControl(websocket.CloseMessage,[]byte("goodbye"),time.Now().Add(time.Second))
 }

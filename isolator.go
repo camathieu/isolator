@@ -1,10 +1,10 @@
 package main
 
 import (
-	"github.com/root-gg/isolator/isolator"
+	"github.com/root-gg/isolator/server"
 )
 
 func main() {
-	i := isolator.NewIsolator()
-	i.Start()
+	izolator := server.NewIzolatorServer()
+	izolator.Start()
 }

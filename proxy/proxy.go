@@ -2,32 +2,36 @@ package proxy
 
 import (
 	"net/http"
+	"crypto/tls"
+	"github.com/gorilla/websocket"
 )
 
-type Proxy struct {
+type IzolatorProxy struct {
 	config *ProxyConfig
 	client *http.Client
+	dialer *websocket.Dialer
 	pools map[string]*ConnectionPool
 }
 
-func NewProxy(config *ProxyConfig) (p *Proxy){
-	p = new(Proxy)
-	p.config = config
-	p.client = new(http.Client)
-	p.pools = make(map[string]*ConnectionPool)
+func NewIzolatorProxy(config *ProxyConfig) (ip *IzolatorProxy){
+	ip = new(IzolatorProxy)
+	ip.config = config
+	ip.client = &http.Client{}
+	ip.dialer = &websocket.Dialer{ TLSClientConfig: &tls.Config{InsecureSkipVerify:true}}
+	ip.pools = make(map[string]*ConnectionPool)
 	return
 }
 
-func (p *Proxy) Start() {
-	for _, target := range p.config.Targets {
-		pool := NewConnectionPool(p,target)
-		p.pools[target] = pool
+func (ip *IzolatorProxy) Start() {
+	for _, target := range ip.config.Targets {
+		pool := NewConnectionPool(ip,target)
+		ip.pools[target] = pool
 		go pool.Start()
 	}
 }
 
-func (p *Proxy) Shutdown() {
-	for _, pool := range p.pools {
+func (ip *IzolatorProxy) Shutdown() {
+	for _, pool := range ip.pools {
 		pool.Shutdown()
 	}
 }

@@ -8,7 +8,7 @@ import (
 )
 
 type ConnectionPool struct {
-	proxy *Proxy
+	proxy *IzolatorProxy
 	target string
 
 	connections []*ProxyConnection
@@ -17,7 +17,7 @@ type ConnectionPool struct {
 	done chan(struct{})
 }
 
-func NewConnectionPool(proxy *Proxy, target string) (cp *ConnectionPool){
+func NewConnectionPool(proxy *IzolatorProxy, target string) (cp *ConnectionPool){
 	cp = new(ConnectionPool)
 	cp.proxy = proxy
 	cp.target = target
@@ -68,6 +68,7 @@ func (cp *ConnectionPool) Connect() (err error){
 
 	err = conn.Connect()
 	if err != nil {
+		log.Printf("Unable to connect to %s : %s",cp.target,err)
 		cp.Remove(conn)
 	}
 

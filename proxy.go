@@ -16,9 +16,9 @@ func main() {
 	hostname, _ := uuid.NewV4()
 	config.Name = hostname.String()
 
-	config.Targets = append(config.Targets,"ws://localhost:8080/register")
+	config.Targets = append(config.Targets,"wss://localhost:8080/register")
 
-	proxy := proxy.NewProxy(config)
+	proxy := proxy.NewIzolatorProxy(config)
 
 	/*
  	* Handle SIGINT
