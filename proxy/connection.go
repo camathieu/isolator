@@ -127,7 +127,7 @@ func (conn *ProxyConnection) Serve() {
 		req.URL = URL
 
 		// Protect against trolls
-		//req.Header.Del("X-PROXY-DESTINATION")
+		req.Header.Del("X-PROXY-DESTINATION")
 
 		// Pipe request body
 		_, bodyReader, err := conn.ws.NextReader()

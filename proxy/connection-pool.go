@@ -53,11 +53,11 @@ func (cp *ConnectionPool) Start() {
 func (cp *ConnectionPool) connect() (err error) {
 	ps := cp.Size()
 
-	if ps.idle >= cp.proxy.config.PoolIdleSize || ps.total >= cp.proxy.config.PoolMaxSize {
+	if ps.idle >= (cp.proxy.config.PoolIdleSize - cp.proxy.config.PoolConcurentSize) || ps.total >= cp.proxy.config.PoolMaxSize {
 		return
 	}
 
-	if ps.connecting >= cp.proxy.config.PoolIdleSize-ps.idle {
+	if ps.connecting >= cp.proxy.config.PoolIdleSize - ps.idle {
 		return
 	}
 

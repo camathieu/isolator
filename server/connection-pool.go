@@ -22,7 +22,7 @@ type ConnectionPool struct {
 func NewProxyPool(name string, size int) (cp *ConnectionPool) {
 	cp = new(ConnectionPool)
 	cp.name = name
-	cp.size = size + 1
+	cp.size = size
 	//cp.pool = make(chan *ProxyConnection, 1000)
 	cp.pool = make([]*ProxyConnection,0)
 	return
