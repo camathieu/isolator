@@ -1,34 +1,34 @@
 package proxy
 
 import (
-	"sync"
-	"log"
-	"time"
 	"fmt"
+	"log"
+	"sync"
+	"time"
 )
 
 type ConnectionPool struct {
-	proxy *IzolatorProxy
+	proxy  *IzolatorProxy
 	target string
 
 	connections []*ProxyConnection
-	lock sync.Mutex
+	lock        sync.RWMutex
 
-	done chan(struct{})
+	done chan (struct{})
 }
 
-func NewConnectionPool(proxy *IzolatorProxy, target string) (cp *ConnectionPool){
+func NewConnectionPool(proxy *IzolatorProxy, target string) (cp *ConnectionPool) {
 	cp = new(ConnectionPool)
 	cp.proxy = proxy
 	cp.target = target
-	cp.connections = make([]*ProxyConnection,0)
-	cp.done = make(chan(struct{}))
+	cp.connections = make([]*ProxyConnection, 0)
+	cp.done = make(chan (struct{}))
 	return
 }
 
 func (cp *ConnectionPool) Start() {
 	for {
-		err := cp.Connect()
+		err := cp.connect()
 		if err == nil {
 			break
 		}
@@ -41,23 +41,23 @@ func (cp *ConnectionPool) Start() {
 		ticker := time.Tick(time.Second)
 		for {
 			select {
-			case <- cp.done:
+			case <-cp.done:
 				break
-			case <- ticker:
-				cp.GarbageCollector()
+			case <-ticker:
+				cp.garbageCollector()
 			}
 		}
 	}()
 }
 
-func (cp *ConnectionPool) Connect() (err error){
+func (cp *ConnectionPool) connect() (err error) {
 	ps := cp.Size()
 
 	if ps.idle >= cp.proxy.config.PoolIdleSize || ps.total >= cp.proxy.config.PoolMaxSize {
 		return
 	}
 
-	if ps.connecting >= cp.proxy.config.PoolIdleSize - ps.idle {
+	if ps.connecting >= cp.proxy.config.PoolIdleSize-ps.idle {
 		return
 	}
 
@@ -68,27 +68,27 @@ func (cp *ConnectionPool) Connect() (err error){
 
 	err = conn.Connect()
 	if err != nil {
-		log.Printf("Unable to connect to %s : %s",cp.target,err)
+		log.Printf("Unable to connect to %s : %s", cp.target, err)
 		cp.Remove(conn)
 	}
 
 	return
 }
 
-func (cp *ConnectionPool) GarbageCollector() {
+func (cp *ConnectionPool) garbageCollector() {
 	ps := cp.Size()
-	log.Printf("%s pool size : %v",cp.target, ps)
+	log.Printf("%s pool size : %v", cp.target, ps)
 
 	if ps.total == 0 {
-		err := cp.Connect()
+		err := cp.connect()
 		if err != nil {
 			return
 		}
 	}
 
 	if ps.idle < cp.proxy.config.PoolIdleSize {
-		for i := ps.idle ; i < cp.proxy.config.PoolIdleSize ; i++ {
-			go cp.Connect()
+		for i := ps.idle; i < cp.proxy.config.PoolIdleSize; i++ {
+			go cp.connect()
 		}
 	}
 
@@ -97,49 +97,15 @@ func (cp *ConnectionPool) GarbageCollector() {
 	}
 }
 
-type PoolSize struct {
-	connecting int
-	idle int
-	running int
-	closed int
-	total int
-}
-
-func (ps *PoolSize) String() string {
-	return fmt.Sprintf("Connecting %d, idle %d, running %d, closed %d, total %d",ps.connecting,ps.idle,ps.running,ps.closed,ps.total)
-}
-
-func (cp *ConnectionPool) Size() (ps *PoolSize){
+func (cp *ConnectionPool) Add(conn *ProxyConnection) {
 	cp.lock.Lock()
 	defer cp.lock.Unlock()
 
-	ps = new(PoolSize)
-	ps.total = len(cp.connections)
-	for _, connection :=  range cp.connections {
-		switch connection.status {
-		case CONNECTING:
-			ps.connecting++
-		case IDLE:
-			ps.idle++
-		case RUNNING:
-			ps.running++
-		case CLOSED:
-			ps.closed++
-		}
-	}
-
-	return
-}
-
-func (cp *ConnectionPool) Add(conn *ProxyConnection){
-	cp.lock.Lock()
-	defer cp.lock.Unlock()
-
-	cp.connections = append(cp.connections,conn)
+	cp.connections = append(cp.connections, conn)
 
 }
 
-func (cp *ConnectionPool) Remove(conn *ProxyConnection){
+func (cp *ConnectionPool) Remove(conn *ProxyConnection) {
 	cp.lock.Lock()
 	defer cp.lock.Unlock()
 
@@ -154,9 +120,43 @@ func (cp *ConnectionPool) Remove(conn *ProxyConnection){
 	cp.connections = filtered
 }
 
-func (cp *ConnectionPool) Shutdown(){
+func (cp *ConnectionPool) Shutdown() {
 	close(cp.done)
 	for _, conn := range cp.connections {
 		conn.Close()
 	}
+}
+
+type PoolSize struct {
+	connecting int
+	idle       int
+	running    int
+	closed     int
+	total      int
+}
+
+func (ps *PoolSize) String() string {
+	return fmt.Sprintf("Connecting %d, idle %d, running %d, closed %d, total %d", ps.connecting, ps.idle, ps.running, ps.closed, ps.total)
+}
+
+func (cp *ConnectionPool) Size() (ps *PoolSize) {
+	cp.lock.RLock()
+	defer cp.lock.RUnlock()
+
+	ps = new(PoolSize)
+	ps.total = len(cp.connections)
+	for _, connection := range cp.connections {
+		switch connection.status {
+		case CONNECTING:
+			ps.connecting++
+		case IDLE:
+			ps.idle++
+		case RUNNING:
+			ps.running++
+		case CLOSED:
+			ps.closed++
+		}
+	}
+
+	return
 }

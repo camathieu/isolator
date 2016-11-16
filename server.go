@@ -2,9 +2,9 @@ package main
 
 import (
 	"flag"
+	"io/ioutil"
 	"log"
 	"net/http"
-	"io/ioutil"
 	"time"
 )
 
@@ -17,13 +17,13 @@ func hello(w http.ResponseWriter, r *http.Request) {
 
 func header(w http.ResponseWriter, r *http.Request) {
 	log.Println("header")
-	w.Header().Add("hello","world")
+	w.Header().Add("hello", "world")
 	w.Write([]byte("hello world in header\n"))
 }
 
 func post(w http.ResponseWriter, r *http.Request) {
-	body,err := ioutil.ReadAll(r.Body)
-	if (err != nil){
+	body, err := ioutil.ReadAll(r.Body)
+	if err != nil {
 		log.Println(err)
 	}
 	r.Body.Close()
@@ -35,7 +35,7 @@ func post(w http.ResponseWriter, r *http.Request) {
 }
 
 func fail(w http.ResponseWriter, r *http.Request) {
-	http.Error(w,"GO FUNK YOURSELF",666)
+	http.Error(w, "GO FUNK YOURSELF", 666)
 }
 
 func sleep(w http.ResponseWriter, r *http.Request) {

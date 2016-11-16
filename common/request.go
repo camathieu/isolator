@@ -5,13 +5,13 @@ import (
 )
 
 type HttpRequest struct {
-	Method           string
-	URL              string
-	Proto            string
-	ProtoMajor       int
-	ProtoMinor       int
-	Header           http.Header
-	ContentLength    int64
+	Method        string
+	URL           string
+	Proto         string
+	ProtoMajor    int
+	ProtoMinor    int
+	Header        http.Header
+	ContentLength int64
 }
 
 func SerializeHttpRequest(req *http.Request) *HttpRequest {

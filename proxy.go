@@ -1,11 +1,13 @@
 package main
 
 import (
-	"github.com/root-gg/isolator/proxy"
+	"log"
 	"os"
 	"os/signal"
-	"log"
+
 	"github.com/nu7hatch/gouuid"
+
+	"github.com/root-gg/isolator/proxy"
 )
 
 func main() {
@@ -16,13 +18,13 @@ func main() {
 	hostname, _ := uuid.NewV4()
 	config.Name = hostname.String()
 
-	config.Targets = append(config.Targets,"wss://localhost:8080/register")
+	config.Targets = append(config.Targets, "ws://localhost:8080/register")
 
 	proxy := proxy.NewIzolatorProxy(config)
 
 	/*
- 	* Handle SIGINT
- 	*/
+	* Handle SIGINT
+	 */
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt)
 	go func() {
@@ -38,4 +40,3 @@ func main() {
 
 	select {}
 }
-

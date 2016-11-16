@@ -1,15 +1,18 @@
 package proxy
 
 import (
-	"log"
 	"encoding/json"
-	"github.com/gorilla/websocket"
 	"io"
-	"net/url"
 	"io/ioutil"
-	"github.com/root-gg/isolator/common"
-	"time"
+	"log"
+	"net/url"
 	"sync"
+	"time"
+
+	"github.com/gorilla/websocket"
+
+	"github.com/root-gg/isolator/common"
+	"fmt"
 )
 
 const (
@@ -20,9 +23,9 @@ const (
 )
 
 type ProxyConnection struct {
-	pool *ConnectionPool
-	ws *websocket.Conn
-	last time.Time
+	pool   *ConnectionPool
+	ws     *websocket.Conn
+	last   time.Time
 	status int
 }
 
@@ -33,7 +36,7 @@ func NewProxyConnection(pool *ConnectionPool) (conn *ProxyConnection) {
 	return
 }
 
-func (conn *ProxyConnection) Connect() (err error){
+func (conn *ProxyConnection) Connect() (err error) {
 	log.Printf("Connecting to %s", conn.pool.target)
 
 	conn.ws, _, err = conn.pool.proxy.dialer.Dial(conn.pool.target, nil)
@@ -41,11 +44,14 @@ func (conn *ProxyConnection) Connect() (err error){
 		return err
 	}
 
-	conn.ws.SetCloseHandler(func(mt int, err string) error{
-		log.Println("connection lost")
-		conn.pool.Remove(conn)
-		return nil
-	})
+	// Greeting
+	greeting := fmt.Sprintf("%s_%d", conn.pool.proxy.config.Name,conn.pool.proxy.config.PoolIdleSize)
+	err = conn.ws.WriteMessage(websocket.TextMessage, []byte(greeting));
+	if err != nil {
+		log.Println("greeting error :", err)
+		conn.Close()
+		return
+	}
 
 	conn.last = time.Now()
 
@@ -57,13 +63,6 @@ func (conn *ProxyConnection) Connect() (err error){
 func (conn *ProxyConnection) Serve() {
 	// defer remove conn
 	defer conn.Close()
-
-	// Greeting
-	err := conn.ws.WriteMessage(websocket.TextMessage, []byte(conn.pool.proxy.config.Name))
-	if err != nil {
-		log.Println("greeting error :", err)
-		return
-	}
 
 	var wlock sync.Mutex
 
@@ -101,7 +100,7 @@ func (conn *ProxyConnection) Serve() {
 
 		conn.status = RUNNING
 		conn.last = time.Now()
-		go conn.pool.Connect()
+		go conn.pool.connect()
 
 		wlock.Lock()
 
@@ -156,7 +155,7 @@ func (conn *ProxyConnection) Serve() {
 		log.Println("write response")
 
 		// Write response
-		err = conn.ws.WriteMessage(websocket.TextMessage,jsonResponse)
+		err = conn.ws.WriteMessage(websocket.TextMessage, jsonResponse)
 		if err != nil {
 			log.Printf("Unable to write response : %v", err)
 			break
@@ -166,13 +165,13 @@ func (conn *ProxyConnection) Serve() {
 
 		// Pipe response body
 		bodyWriter, err := conn.ws.NextWriter(websocket.BinaryMessage)
-		if (err != nil){
-			log.Printf("Unable to get response body writer : %v",err)
+		if err != nil {
+			log.Printf("Unable to get response body writer : %v", err)
 			break
 		}
-		_, err = io.Copy(bodyWriter,resp.Body)
+		_, err = io.Copy(bodyWriter, resp.Body)
 		if err != nil {
-			log.Printf("Unable to get pipe response body : %v",err)
+			log.Printf("Unable to get pipe response body : %v", err)
 			break
 		}
 		bodyWriter.Close()

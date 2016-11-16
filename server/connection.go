@@ -1,16 +1,17 @@
 package server
 
 import (
-	"net/http"
-	"log"
-	"io"
 	"encoding/json"
 	"fmt"
+	"io"
+	"io/ioutil"
+	"log"
+	"net/http"
+	"sync"
 
 	"github.com/gorilla/websocket"
+
 	"github.com/root-gg/isolator/common"
-	"io/ioutil"
-	"sync"
 )
 
 const (
@@ -25,24 +26,24 @@ type ProxyConnection struct {
 	ws *websocket.Conn
 
 	status int
-	lock sync.Mutex
+	lock   sync.Mutex
 
-	nextResponse      chan(chan(io.Reader))
+	nextResponse chan (chan (io.Reader))
 }
 
 // NewProxyConnection return a new ProxyConnection
-func NewProxyConnection(pp *ConnectionPool, ws *websocket.Conn) (pc *ProxyConnection){
+func NewProxyConnection(pp *ConnectionPool, ws *websocket.Conn) (pc *ProxyConnection) {
 	pc = new(ProxyConnection)
 	pc.cp = pp
 	pc.ws = ws
-	pc.nextResponse = make(chan(chan(io.Reader)))
+	pc.nextResponse = make(chan (chan (io.Reader)))
 
 	go pc.read()
 
 	return
 }
 
-func (pc *ProxyConnection) read(){
+func (pc *ProxyConnection) read() {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("Websocket crash recovered : %s", r)
@@ -93,9 +94,9 @@ func (pc *ProxyConnection) read(){
 }
 
 // Proxy a HTTP request through the IzolatorProxy over the websocket connection
-func (pc *ProxyConnection) proxyRequest(w http.ResponseWriter, r *http.Request) (err error){
+func (pc *ProxyConnection) proxyRequest(w http.ResponseWriter, r *http.Request) (err error) {
 	if pc.status != IDLE {
-		return fmt.Errorf("Proxy connection is not READY")
+		return fmt.Errorf("Proxy connection is not IDLE")
 	}
 	pc.status = PROXY
 
@@ -104,15 +105,15 @@ func (pc *ProxyConnection) proxyRequest(w http.ResponseWriter, r *http.Request) 
 	// Serialize HTTP request
 	jsonReq, err := json.Marshal(common.SerializeHttpRequest(r))
 	if err != nil {
-		return fmt.Errorf("Unable to serialize request : %s",err)
+		return fmt.Errorf("Unable to serialize request : %s", err)
 	}
 
 	log.Printf("write request")
 
 	// Send the serialized HTTP request to the remote IzolatorProxy
-	err = pc.ws.WriteMessage(websocket.TextMessage,jsonReq)
+	err = pc.ws.WriteMessage(websocket.TextMessage, jsonReq)
 	if err != nil {
-		return fmt.Errorf("Unable to write request : %s",err)
+		return fmt.Errorf("Unable to write request : %s", err)
 	}
 
 	log.Printf("write request body")
@@ -120,15 +121,15 @@ func (pc *ProxyConnection) proxyRequest(w http.ResponseWriter, r *http.Request) 
 	// Pipe the HTTP request body to the remote IzolatorProxy
 	bodyWriter, err := pc.ws.NextWriter(websocket.BinaryMessage)
 	if err != nil {
-		return fmt.Errorf("Unable to get request body writer : %s",err)
+		return fmt.Errorf("Unable to get request body writer : %s", err)
 	}
-	_, err = io.Copy(bodyWriter,r.Body)
+	_, err = io.Copy(bodyWriter, r.Body)
 	if err != nil {
-		return fmt.Errorf("Unable to pipe request body : %s",err)
+		return fmt.Errorf("Unable to pipe request body : %s", err)
 	}
 	err = bodyWriter.Close()
 	if err != nil {
-		return fmt.Errorf("Unable to pipe request body (close) : %s",err)
+		return fmt.Errorf("Unable to pipe request body (close) : %s", err)
 	}
 
 	log.Printf("read response")
@@ -136,22 +137,22 @@ func (pc *ProxyConnection) proxyRequest(w http.ResponseWriter, r *http.Request) 
 	// Get the serialized HTTP Response from the remote IzolatorProxy
 	// To do so send a new channel to the read() goroutine
 	// to get the next message reader
-	responseChannel := make(chan(io.Reader))
+	responseChannel := make(chan (io.Reader))
 	pc.nextResponse <- responseChannel
-	responseReader, more := <- responseChannel
+	responseReader, more := <-responseChannel
 	if responseReader == nil {
 		if more {
 			// If more is false the channel is already closed
 			close(responseChannel)
 		}
-		return fmt.Errorf("Unable to get http response reader : %s",err)
+		return fmt.Errorf("Unable to get http response reader : %s", err)
 	}
 
 	// Read the HTTP Response
 	jsonResponse, err := ioutil.ReadAll(responseReader)
 	if err != nil {
 		close(responseChannel)
-		return fmt.Errorf("Unable to read http response : %s",err)
+		return fmt.Errorf("Unable to read http response : %s", err)
 	}
 
 	// Notify the read() goroutine that we are done reading the response
@@ -161,7 +162,7 @@ func (pc *ProxyConnection) proxyRequest(w http.ResponseWriter, r *http.Request) 
 	httpResponse := new(common.HttpResponse)
 	err = json.Unmarshal(jsonResponse, httpResponse)
 	if err != nil {
-		return fmt.Errorf("Unable to unserialize http response : %s",err)
+		return fmt.Errorf("Unable to unserialize http response : %s", err)
 	}
 
 	log.Printf("write response")
@@ -179,24 +180,24 @@ func (pc *ProxyConnection) proxyRequest(w http.ResponseWriter, r *http.Request) 
 	// Get the HTTP Response body from the remote IzolatorProxy
 	// To do so send a new channel to the read() goroutine
 	// to get the next message reader
-	responseBodyChannel := make(chan(io.Reader))
+	responseBodyChannel := make(chan (io.Reader))
 	pc.nextResponse <- responseBodyChannel
-	responseBodyReader, more := <- responseBodyChannel
+	responseBodyReader, more := <-responseBodyChannel
 	if responseBodyReader == nil {
 		if more {
 			// If more is false the channel is already closed
 			close(responseChannel)
 		}
-		return fmt.Errorf("Unable to get http response body reader : %s",err)
+		return fmt.Errorf("Unable to get http response body reader : %s", err)
 	}
 
 	log.Printf("write response body")
 
 	// Pipe the HTTP response body right from the remote IzolatorProxy to the client
-	_, err = io.Copy(w,responseBodyReader)
+	_, err = io.Copy(w, responseBodyReader)
 	if err != nil {
 		close(responseBodyChannel)
-		return fmt.Errorf("Unable to pipe response body : %s",err)
+		return fmt.Errorf("Unable to pipe response body : %s", err)
 	}
 
 	// Notify read() that we are done reading the response body
@@ -209,7 +210,7 @@ func (pc *ProxyConnection) proxyRequest(w http.ResponseWriter, r *http.Request) 
 }
 
 // Close the remote IzolatorProxy connection
-func (pc *ProxyConnection) Close(){
+func (pc *ProxyConnection) Close() {
 	pc.lock.Lock()
 	defer pc.lock.Unlock()
 
@@ -220,13 +221,11 @@ func (pc *ProxyConnection) Close(){
 	log.Printf("Closing connection from %s", pc.cp.name)
 
 	// This one will be executed *before* lock.Unlock()
-	defer func(){pc.status = CLOSED}()
+	defer func() { pc.status = CLOSED }()
 
 	// Unlock a possible read() wild message
 	close(pc.nextResponse)
 
+	// pc.ws.Close() close the underlying TCP connection
 	pc.ws.Close()
-	// pc.ws.Close() would close the underlying TCP connection
-	// So instead just try to send a close message to that websocket
-	//pc.ws.WriteControl(websocket.CloseMessage,[]byte("goodbye"),time.Now().Add(time.Second))
 }

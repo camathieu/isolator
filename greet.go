@@ -11,15 +11,15 @@ type A struct {
 func (a *A) greet() {
 	for {
 		fmt.Println("Hello, playground")
-		<- time.After(time.Second)
+		<-time.After(time.Second)
 	}
 }
 
 func main() {
-	c := make(chan(*A))
-	go func() {c <- nil}()
-	s, moar := <- c
-	if s == nil{
+	c := make(chan (*A))
+	go func() { c <- nil }()
+	s, moar := <-c
+	if s == nil {
 		if moar {
 			fmt.Println("moar")
 		} else {
@@ -29,9 +29,9 @@ func main() {
 		fmt.Println("dafuq")
 	}
 
-	go func() {close(c)}()
-	s, moar = <- c
-	if s == nil{
+	go func() { close(c) }()
+	s, moar = <-c
+	if s == nil {
 		if moar {
 			fmt.Println("moar")
 		} else {
