@@ -7,6 +7,7 @@ import (
 	"time"
 )
 
+// ConnectionPool manage a pool of connection
 type ConnectionPool struct {
 	proxy  *IzolatorProxy
 	target string
@@ -75,10 +76,12 @@ func (cp *ConnectionPool) connect() (err error) {
 	return
 }
 
+// The garbage collector
 func (cp *ConnectionPool) garbageCollector() {
 	ps := cp.Size()
 	log.Printf("%s pool size : %v", cp.target, ps)
 
+	// If the pool is empty try to make a single connection
 	if ps.total == 0 {
 		err := cp.connect()
 		if err != nil {
@@ -86,6 +89,7 @@ func (cp *ConnectionPool) garbageCollector() {
 		}
 	}
 
+	// Try to reach pool size
 	if ps.idle < cp.proxy.config.PoolIdleSize {
 		for i := ps.idle; i < cp.proxy.config.PoolIdleSize; i++ {
 			go cp.connect()
@@ -93,10 +97,12 @@ func (cp *ConnectionPool) garbageCollector() {
 	}
 
 	if ps.idle > cp.proxy.config.PoolIdleSize {
-		// Remove old connection ( ou new ? )
+		// The proxy will never close connections as they
+		// the sever could initiate a request on it at any moment
 	}
 }
 
+// Add a connection to the pool
 func (cp *ConnectionPool) Add(conn *ProxyConnection) {
 	cp.lock.Lock()
 	defer cp.lock.Unlock()
@@ -105,6 +111,7 @@ func (cp *ConnectionPool) Add(conn *ProxyConnection) {
 
 }
 
+// Remove a connection from the pool
 func (cp *ConnectionPool) Remove(conn *ProxyConnection) {
 	cp.lock.Lock()
 	defer cp.lock.Unlock()
@@ -120,6 +127,7 @@ func (cp *ConnectionPool) Remove(conn *ProxyConnection) {
 	cp.connections = filtered
 }
 
+// Shutdown close all connection in the pool
 func (cp *ConnectionPool) Shutdown() {
 	close(cp.done)
 	for _, conn := range cp.connections {
@@ -139,6 +147,7 @@ func (ps *PoolSize) String() string {
 	return fmt.Sprintf("Connecting %d, idle %d, running %d, closed %d, total %d", ps.connecting, ps.idle, ps.running, ps.closed, ps.total)
 }
 
+// Size return the current state of the pool
 func (cp *ConnectionPool) Size() (ps *PoolSize) {
 	cp.lock.RLock()
 	defer cp.lock.RUnlock()

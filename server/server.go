@@ -11,6 +11,7 @@ import (
 	"strconv"
 
 	"github.com/gorilla/websocket"
+	"net/url"
 )
 
 // IzolatorServer is a Reverse HTTP Proxy over WebSocket
@@ -53,6 +54,7 @@ func (is *IzolatorServer) Start() {
 	log.Fatal(s.ListenAndServe())
 }
 
+// Remove empty conenction pools
 func (is *IzolatorServer) clean() int {
 	is.lock.Lock()
 	defer is.lock.Unlock()
@@ -74,17 +76,33 @@ func (is *IzolatorServer) clean() int {
 	return len(is.pools)
 }
 
-// This is the way for clients to execute HTTP requests through a IzolatorProxy
+// This is the way for clients to execute HTTP requests through an IzolatorProxy
 func (is *IzolatorServer) proxy(w http.ResponseWriter, r *http.Request) {
 	log.Printf("%v %v", r.Method, r.Header)
 
 	if len(is.pools) == 0 {
-		http.Error(w, fmt.Sprintf("No proxy available"), 526)
+		http.Error(w, "No proxy available", 526)
+		return
 	}
 
-	index := rand.Intn(len(is.pools))
+	// Parse destination URL
+	dstURL := r.Header.Get("X-PROXY-DESTINATION")
+	if dstURL == "" {
+		http.Error(w, "Missing X-PROXY-DESTINATION header", 526)
+		return
+	}
+	URL, err := url.Parse(dstURL)
+	if err != nil {
+		http.Error(w, "Unable to parse X-PROXY-DESTINATION header", 526)
+		return
+	}
+	r.URL = URL
+
 	start := time.Now()
 
+	// Randomly select a pool ( other load-balancing strategies could be implemented )
+	// and try to acquire a connection. This should be refactored to use channels
+	index := rand.Intn(len(is.pools))
 	for {
 		if time.Now().Sub(start).Seconds() > 1 {
 			break
@@ -97,19 +115,17 @@ func (is *IzolatorServer) proxy(w http.ResponseWriter, r *http.Request) {
 		log.Printf("%v / %v", index, len(is.pools))
 		is.lock.RUnlock()
 
+		// Get a connection
 		if pc := cp.Take(); pc != nil {
 			if pc.status != IDLE && time.Now().Sub(start).Seconds() < 1 {
 				continue
 			}
 
+			// Send the request to the proxy
 			err := pc.proxyRequest(w, r)
 			if err == nil {
 				// Everything went well we can reuse the connection
-				err := cp.Offer(pc)
-				if err != nil {
-					log.Printf("discarding connection from %s because pool is full", cp.name)
-					pc.Close()
-				}
+				cp.Offer(pc)
 			} else {
 				// An error occurred throw the connection away
 				log.Println(err)
@@ -144,6 +160,7 @@ func (is *IzolatorServer) register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Parse the greeting message
 	split := strings.Split(string(greeting), "_")
 	name := split[0]
 	size, err := strconv.Atoi(split[1])

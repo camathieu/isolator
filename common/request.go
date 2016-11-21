@@ -2,8 +2,10 @@ package common
 
 import (
 	"net/http"
+	"net/url"
 )
 
+// HttpRequest is a serializable version of http.Request ( with only usefull fields )
 type HttpRequest struct {
 	Method        string
 	URL           string
@@ -14,24 +16,31 @@ type HttpRequest struct {
 	ContentLength int64
 }
 
-func SerializeHttpRequest(req *http.Request) *HttpRequest {
-	r := new(HttpRequest)
+// SerializeHttpRequest create a new HttpRequest from a http.Request
+func SerializeHttpRequest(req *http.Request) (r *HttpRequest) {
+	r = new(HttpRequest)
+	r.URL = req.URL.String()
 	r.Method = req.Method
 	r.Proto = req.Proto
 	r.ProtoMajor = req.ProtoMajor
 	r.ProtoMinor = req.ProtoMinor
 	r.Header = req.Header
 	r.ContentLength = req.ContentLength
-	return r
+	return
 }
 
-func UnserializeHttpRequest(req *HttpRequest) *http.Request {
-	r := new(http.Request)
+// SerializeHttpRequest create a new http.Request from a HttpRequest
+func UnserializeHttpRequest(req *HttpRequest) (r *http.Request, err error) {
+	r = new(http.Request)
 	r.Method = req.Method
+	r.URL, err = url.Parse(req.URL)
+	if err != nil {
+		return
+	}
 	r.Proto = req.Proto
 	r.ProtoMajor = req.ProtoMajor
 	r.ProtoMinor = req.ProtoMinor
 	r.Header = req.Header
 	r.ContentLength = req.ContentLength
-	return r
+	return
 }

@@ -28,14 +28,11 @@ func NewProxyPool(name string, size int) (cp *ConnectionPool) {
 	return
 }
 
-func (cp *ConnectionPool) Register(ws *websocket.Conn) {
+func (cp *ConnectionPool) Register(ws *websocket.Conn) (err error) {
 	log.Printf("Registering new connection from %s", cp.name)
 	pc := NewProxyConnection(cp, ws)
-	err := cp.Offer(pc)
-	if err != nil {
-		log.Printf("rejecting connection from %s because pool is full", cp.name)
-		pc.Close()
-	}
+	err = cp.Offer(pc)
+	return
 }
 
 var ConnectionPoolFull error = errors.New("ConnectionPool is full")
@@ -48,8 +45,9 @@ func (cp *ConnectionPool) Offer(pc *ProxyConnection) (err error){
 	if (size < cp.size){
 		cp.pool = append(cp.pool,pc)
 	} else {
-		log.Printf("%d/%d",size,cp.size)
 		err = ConnectionPoolFull
+		log.Printf("Discarding connection from %s because pool is full", cp.name)
+		pc.Close()
 	}
 
 	return
@@ -91,6 +89,7 @@ func (cp *ConnectionPool) clean() int {
 		return 0
 	}
 
+	// TODO use the no allocation slice trick
 	var pool []*ProxyConnection // == nil
 	for _, pc := range cp.pool {
 		if pc.status == IDLE {
@@ -102,12 +101,8 @@ func (cp *ConnectionPool) clean() int {
 	return len(cp.pool)
 }
 
-func (cp *ConnectionPool) check() bool {
+func (cp *ConnectionPool) isEmpty() bool {
 	cp.lock.Lock()
 	defer cp.lock.Unlock()
-	return cp.clean() > 0
-}
-
-func (is *IzolatorServer) Todo(){
-	// TODO
+	return cp.clean() == 0
 }

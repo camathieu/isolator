@@ -22,6 +22,7 @@ const (
 	CLOSED
 )
 
+// ProxyConection handle a single websocket (HTTP/TCP) connection to an IzolatorServer
 type ProxyConnection struct {
 	pool   *ConnectionPool
 	ws     *websocket.Conn
@@ -29,6 +30,7 @@ type ProxyConnection struct {
 	status int
 }
 
+// NewProxyConnection create a ProxyConnection object
 func NewProxyConnection(pool *ConnectionPool) (conn *ProxyConnection) {
 	conn = new(ProxyConnection)
 	conn.pool = pool
@@ -36,15 +38,17 @@ func NewProxyConnection(pool *ConnectionPool) (conn *ProxyConnection) {
 	return
 }
 
+// Connect to the IsolatorServer via websocket
 func (conn *ProxyConnection) Connect() (err error) {
 	log.Printf("Connecting to %s", conn.pool.target)
 
+	// Create a new TCP(/TLS) connection ( no use of net.http )
 	conn.ws, _, err = conn.pool.proxy.dialer.Dial(conn.pool.target, nil)
 	if err != nil {
 		return err
 	}
 
-	// Greeting
+	// Send the greeting message with proxy id and wanted pool size.
 	greeting := fmt.Sprintf("%s_%d", conn.pool.proxy.config.Name,conn.pool.proxy.config.PoolIdleSize)
 	err = conn.ws.WriteMessage(websocket.TextMessage, []byte(greeting));
 	if err != nil {
@@ -60,23 +64,27 @@ func (conn *ProxyConnection) Connect() (err error) {
 	return
 }
 
+// Serve is the main loop it :
+//  - wait to receive HTTP requests from the IzolatorServer
+//  - execute HTTP requests
+//  - send HTTP response back to the IzolatorServer
+//
+// As in the server code there is no buffering of HTTP request/response body
+// As is the server if any error occurs the connection is closed/throwed
 func (conn *ProxyConnection) Serve() {
-	// defer remove conn
 	defer conn.Close()
 
-	var wlock sync.Mutex
 
-	//go func(){
-	//	for {
-	//		time.Sleep(time.Second)
-	//		wlock.Lock()
-	//		err = conn.ws.WriteControl(websocket.PingMessage,[]byte("ping"), time.Now().Add(time.Second))
-	//		if err != nil {
-	//			conn.Close()
-	//		}
-	//		wlock.Unlock()
-	//	}
-	//}()
+	// Keep connection alive
+	go func(){
+		for {
+			time.Sleep(30 * time.Second)
+			err := conn.ws.WriteControl(websocket.PingMessage,[]byte{}, time.Now().Add(time.Second))
+			if err != nil {
+				conn.Close()
+			}
+		}
+	}()
 
 	for {
 		// Read request
@@ -100,9 +108,9 @@ func (conn *ProxyConnection) Serve() {
 
 		conn.status = RUNNING
 		conn.last = time.Now()
-		go conn.pool.connect()
 
-		wlock.Lock()
+		// Trigger a pool refresh to open new connections if needed
+		go conn.pool.connect()
 
 		// Unserialize request
 		httpRequest := new(common.HttpRequest)
@@ -111,23 +119,11 @@ func (conn *ProxyConnection) Serve() {
 			log.Printf("Unable to unserialize http request : %s", err)
 			break
 		}
-		req := common.UnserializeHttpRequest(httpRequest)
-
-		dstURL := httpRequest.Header.Get("X-PROXY-DESTINATION")
-		if dstURL == "" {
-			log.Println("Missing X-PROXY-DESTINATION header")
-			break
-		}
-
-		URL, err := url.Parse(dstURL)
+		req, err := common.UnserializeHttpRequest(httpRequest)
 		if err != nil {
-			log.Printf("Unable to parse URL : %v", err)
+			log.Printf("Unable to unserialize http request : %v", err)
 			break
 		}
-		req.URL = URL
-
-		// Protect against trolls
-		req.Header.Del("X-PROXY-DESTINATION")
 
 		// Pipe request body
 		_, bodyReader, err := conn.ws.NextReader()
@@ -175,11 +171,10 @@ func (conn *ProxyConnection) Serve() {
 			break
 		}
 		bodyWriter.Close()
-
-		wlock.Unlock()
 	}
 }
 
+// Close close the connection and remove it from the pool
 func (conn *ProxyConnection) Close() {
 	defer conn.pool.Remove(conn)
 	conn.status = CLOSED
